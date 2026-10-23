@@ -25,6 +25,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Invite links (https://veil-secure-chat.fly.dev/join/<code>) open the
+                 app directly; verified via /.well-known/assetlinks.json. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="veil-secure-chat.fly.dev" android:pathPrefix="/join/" />
+            </intent-filter>
+
         </activity>
 
         <provider

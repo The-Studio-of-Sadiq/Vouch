@@ -606,3 +606,32 @@ textarea:focus {
     padding-right: 12px;
   }
 }
+
+/* --- invites --- */
+
+.invite-banner {
+  background: var(--surface-2);
+  border-radius: 8px;
+  margin: 0;
+}
+.invite-link {
+  display: block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  word-break: break-all;
+  margin-bottom: 8px;
+  /* Not message content: let people select it by hand as a fallback. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+.empty.alone {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.empty.alone p {
+  margin: 0;
+}

@@ -7,4 +7,6 @@ export const API_BASE = configured ?? '';
 
 export const WS_URL = configured
   ? configured.replace(/^http/, 'ws') + '/ws'
-  : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+  : typeof location === 'undefined'
+    ? '' // not in a browser (tests pass their own URLs)
+    : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;

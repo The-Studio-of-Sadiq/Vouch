@@ -43,6 +43,12 @@ export function CaptureShield() {
     };
     const onVisibility = () => (document.hidden ? raise() : lower());
     const block = (e: Event) => e.preventDefault();
+    // Copying is blocked except from the invite link, which isn't secret.
+    const blockCopy = (e: Event) => {
+      const node = document.getSelection()?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      if (!el?.closest('.invite-link')) e.preventDefault();
+    };
     const onBlur = () => raise();
 
     window.addEventListener('blur', onBlur);
@@ -54,7 +60,7 @@ export function CaptureShield() {
     window.addEventListener('beforeprint', onBlur);
     document.addEventListener('contextmenu', block);
     document.addEventListener('dragstart', block);
-    document.addEventListener('copy', block);
+    document.addEventListener('copy', blockCopy);
     return () => {
       clearTimeout(timer);
       window.removeEventListener('blur', onBlur);
@@ -66,7 +72,7 @@ export function CaptureShield() {
       window.removeEventListener('keydown', onMeta, true);
       document.removeEventListener('contextmenu', block);
       document.removeEventListener('dragstart', block);
-      document.removeEventListener('copy', block);
+      document.removeEventListener('copy', blockCopy);
     };
   }, []);
 

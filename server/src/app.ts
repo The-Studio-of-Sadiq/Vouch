@@ -273,6 +273,18 @@ export function createServer(opts: ServerOptions) {
     return groupView(q.groupById.get(id));
   });
 
+  // Preview for an invite link, so the app can ask "Join <name>?" first.
+  route('GET', '/api/invites/:code', true, ({ userId, params: [code] }) => {
+    const g = q.groupByInvite.get(code) as any;
+    if (!g) throw new HttpError(404, 'This invite link is invalid or the group no longer exists.');
+    return {
+      groupId: g.id,
+      name: g.name,
+      memberCount: (q.groupMembers.all(g.id) as any[]).length,
+      alreadyMember: !!q.isMember.get(g.id, userId),
+    };
+  });
+
   route('POST', '/api/groups/join', true, ({ userId, body }) => {
     const g = q.groupByInvite.get(String(body?.inviteCode ?? '').trim()) as any;
     if (!g) throw new HttpError(404, 'No group with that invite code.');

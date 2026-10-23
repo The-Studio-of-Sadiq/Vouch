@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AuthResponse } from '../../../shared/protocol';
 import { API_BASE } from '../lib/endpoint';
 
-export function AuthScreen({ onAuthed }: { onAuthed: (a: AuthResponse) => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+export function AuthScreen({ onAuthed, inviting = false }: { onAuthed: (a: AuthResponse) => void; inviting?: boolean }) {
+  // Someone arriving from an invite link most likely has no account yet.
+  const [mode, setMode] = useState<'login' | 'register'>(inviting ? 'register' : 'login');
+  // A native app link can arrive after the first render.
+  useEffect(() => {
+    if (inviting) setMode('register');
+  }, [inviting]);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -38,6 +43,9 @@ export function AuthScreen({ onAuthed }: { onAuthed: (a: AuthResponse) => void }
           <h1>Veil</h1>
         </div>
         <p className="muted">End-to-end encrypted group chat. Messages are revealed a few letters at a time.</p>
+        {inviting && (
+          <p className="banner invite-banner">You've been invited to a group. Create an account or sign in to join it.</p>
+        )}
         <label>
           Email
           <input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -6,6 +6,7 @@ import { ChatView } from './components/ChatView';
 import { GroupPanel } from './components/GroupPanel';
 import { MessageRoster } from './components/ReadRoster';
 import { API_BASE, WS_URL } from './lib/endpoint';
+import { initialInvite, parseInvite, shareInvite, takePendingInvite, watchInvites } from './lib/invite';
 import { idbKV } from './lib/kv';
 import { Messenger } from './lib/messenger';
 
@@ -27,6 +28,14 @@ export function App() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [panel, setPanel] = useState<{ kind: 'group' } | { kind: 'message'; msgId: string } | null>(null);
   const [dialog, setDialog] = useState<'create' | 'join' | null>(null);
+  const [invite, setInvite] = useState<string | null>(initialInvite);
+  const [shareNote, setShareNote] = useState('');
+
+  useEffect(() => {
+    let stop = () => {};
+    watchInvites(setInvite).then((s) => (stop = s));
+    return () => stop();
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -77,7 +86,7 @@ export function App() {
   if (!session) {
     return (
       <>
-        <AuthScreen onAuthed={signIn} />
+        <AuthScreen onAuthed={signIn} inviting={!!invite} />
       </>
     );
   }
@@ -105,6 +114,15 @@ export function App() {
   }
 
   const group = m.groups.find((g) => g.id === groupId) ?? m.groups[0] ?? null;
+
+  const invitePeople = async () => {
+    if (!group) return;
+    const result = await shareInvite(group).catch(() => 'failed' as const);
+    if (result === 'copied') setShareNote('Invite link copied');
+    else if (result === 'failed') setShareNote('Could not share the link');
+    else return;
+    setTimeout(() => setShareNote(''), 2500);
+  };
   const panelMsg = panel?.kind === 'message' && group ? m.getMessages(group.id).find((x) => x.id === panel.msgId) : undefined;
 
   return (
@@ -129,7 +147,7 @@ export function App() {
         <button className="rail-item add" title="Create group" aria-label="Create group" onClick={() => setDialog('create')}>
           +
         </button>
-        <button className="rail-item add" title="Join with invite" aria-label="Join with invite code" onClick={() => setDialog('join')}>
+        <button className="rail-item add" title="Join a group" aria-label="Join a group with an invite link or code" onClick={() => setDialog('join')}>
           ⇢
         </button>
         <div className="rail-spacer" />
@@ -145,23 +163,28 @@ export function App() {
             <span className={m.connected ? 'status on' : 'status'}>{m.connected ? 'E2E encrypted' : 'Reconnecting…'}</span>
           </div>
           {group && (
-            <button className="btn small" onClick={() => setPanel(panel?.kind === 'group' ? null : { kind: 'group' })}>
-              Members
-            </button>
+            <div className="row">
+              <button className="btn small primary" onClick={invitePeople}>
+                {shareNote || 'Invite'}
+              </button>
+              <button className="btn small" onClick={() => setPanel(panel?.kind === 'group' ? null : { kind: 'group' })}>
+                Members
+              </button>
+            </div>
           )}
         </header>
         {group ? (
-          <ChatView m={m} group={group} onOpenRoster={(msgId) => setPanel({ kind: 'message', msgId })} />
+          <ChatView m={m} group={group} onInvite={invitePeople} onOpenRoster={(msgId) => setPanel({ kind: 'message', msgId })} />
         ) : (
           <div className="empty-state">
             <h2>Welcome, {m.user.name}</h2>
-            <p className="muted">Create a group, or join one with an invite code from a friend.</p>
+            <p className="muted">Create a group and invite people, or open an invite link a friend sent you.</p>
             <div className="row">
               <button className="btn primary" onClick={() => setDialog('create')}>
                 Create group
               </button>
               <button className="btn" onClick={() => setDialog('join')}>
-                Join with code
+                Join a group
               </button>
             </div>
           </div>
@@ -177,7 +200,7 @@ export function App() {
             </button>
           </header>
           {panel.kind === 'group' ? (
-            <GroupPanel m={m} group={group} onLeft={() => (setPanel(null), setGroupId(null))} />
+            <GroupPanel m={m} group={group} onInvite={invitePeople} onLeft={() => (setPanel(null), setGroupId(null))} />
           ) : panelMsg ? (
             <MessageRoster m={m} group={group} msg={panelMsg} reads={m.getReads(group.id)} />
           ) : null}
@@ -185,6 +208,18 @@ export function App() {
       )}
 
       {dialog && <GroupDialog m={m} kind={dialog} onClose={(id) => (setDialog(null), id && setGroupId(id))} />}
+
+      {invite && (
+        <InvitePrompt
+          m={m}
+          code={invite}
+          onClose={(id) => {
+            takePendingInvite();
+            setInvite(null);
+            if (id) setGroupId(id);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -199,7 +234,13 @@ function GroupDialog({ m, kind, onClose }: { m: Messenger; kind: 'create' | 'joi
         onSubmit={async (e) => {
           e.preventDefault();
           try {
-            const g = kind === 'create' ? await m.createGroup(value) : await m.joinGroup(value);
+            let g;
+            if (kind === 'create') g = await m.createGroup(value);
+            else {
+              const code = parseInvite(value);
+              if (!code) throw new Error('Paste the invite link or code your friend sent you.');
+              g = await m.joinGroup(code);
+            }
             onClose(g.id);
           } catch (err) {
             setError((err as Error).message);
@@ -208,8 +249,15 @@ function GroupDialog({ m, kind, onClose }: { m: Messenger; kind: 'create' | 'joi
       >
         <h2>{kind === 'create' ? 'Create a group' : 'Join a group'}</h2>
         <label>
-          {kind === 'create' ? 'Group name' : 'Invite code'}
-          <input autoFocus required value={value} onChange={(e) => setValue(e.target.value)} maxLength={60} />
+          {kind === 'create' ? 'Group name' : 'Invite link or code'}
+          <input
+            autoFocus
+            required
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            maxLength={kind === 'create' ? 60 : 300}
+            placeholder={kind === 'join' ? 'https://…/join/…' : undefined}
+          />
         </label>
         {error && <p className="error">{error}</p>}
         <div className="row end">
@@ -219,6 +267,63 @@ function GroupDialog({ m, kind, onClose }: { m: Messenger; kind: 'create' | 'joi
           <button className="btn primary">{kind === 'create' ? 'Create' : 'Join'}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+interface InvitePreview {
+  groupId: string;
+  name: string;
+  memberCount: number;
+  alreadyMember: boolean;
+}
+
+// Shown after opening an invite link: confirm before joining.
+function InvitePrompt({ m, code, onClose }: { m: Messenger; code: string; onClose: (groupId?: string) => void }) {
+  const [preview, setPreview] = useState<InvitePreview | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    m.api<InvitePreview>('GET', `/api/invites/${encodeURIComponent(code)}`)
+      .then((p) => (p.alreadyMember ? onClose(p.groupId) : setPreview(p)))
+      .catch((e: Error) => setError(e.message));
+  }, [m, code]);
+
+  return (
+    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-labelledby="invite-title">
+        <h2 id="invite-title">{preview ? `Join ${preview.name}?` : error ? 'Invite not valid' : 'Opening invite…'}</h2>
+        {preview && (
+          <p className="muted">
+            {preview.memberCount} member{preview.memberCount === 1 ? '' : 's'}. Messages are end-to-end encrypted; you
+            will see messages sent after you join.
+          </p>
+        )}
+        {error && <p className="error">{error}</p>}
+        <div className="row end">
+          <button type="button" className="btn" onClick={() => onClose()}>
+            {preview ? 'Not now' : 'Close'}
+          </button>
+          {preview && (
+            <button
+              className="btn primary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  onClose((await m.joinGroup(code)).id);
+                } catch (e) {
+                  setError((e as Error).message);
+                  setBusy(false);
+                }
+              }}
+            >
+              Join group
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

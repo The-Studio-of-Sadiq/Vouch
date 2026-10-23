@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Group } from '../../../shared/protocol';
+import { inviteLink } from '../lib/invite';
 import type { Messenger } from '../lib/messenger';
 import { GroupRoster } from './ReadRoster';
 
-export function GroupPanel({ m, group, onLeft }: { m: Messenger; group: Group; onLeft: () => void }) {
+export function GroupPanel({ m, group, onLeft, onInvite }: { m: Messenger; group: Group; onLeft: () => void; onInvite: () => void }) {
   const [safety, setSafety] = useState<{ userId: string; value: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -22,15 +23,22 @@ export function GroupPanel({ m, group, onLeft }: { m: Messenger; group: Group; o
     <div className="panel-body">
       <section>
         <h3>Invite</h3>
-        <div className="invite">
-          <code>{group.inviteCode}</code>
+        <p className="small muted">Anyone with this link can join. They can open it in the app or in a browser.</p>
+        <code className="invite-link">{inviteLink(group.inviteCode)}</code>
+        <div className="row">
+          <button className="btn small primary" onClick={onInvite}>
+            Share link
+          </button>
           <button
             className="btn small"
             onClick={() =>
-              navigator.clipboard.writeText(group.inviteCode).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              })
+              navigator.clipboard
+                .writeText(inviteLink(group.inviteCode))
+                .then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                })
+                .catch(() => setError('Could not copy. Use Share link instead.'))
             }
           >
             {copied ? 'Copied' : 'Copy'}

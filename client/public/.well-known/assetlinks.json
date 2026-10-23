@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.veil.chat",
+      "sha256_cert_fingerprints": ["76:0C:E5:4B:F2:8A:B7:7A:CD:7E:C2:CB:51:58:FF:A5:7E:FA:AA:0B:28:53:3A:AE:20:37:3C:56:0E:13:CA:04"]
+    }
+  }
+]

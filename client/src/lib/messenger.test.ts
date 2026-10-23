@@ -7,6 +7,7 @@ import { createServer } from '../../../server/src/app';
 import type { AuthResponse } from '../../../shared/protocol';
 import { FingerprintGenerator, KeyHelper } from '@privacyresearch/libsignal-protocol-typescript';
 import { chunkWords } from './chunks';
+import { parseInvite } from './invite';
 import { safetyNumber } from './fingerprint';
 import { memoryKV } from './kv';
 import { Messenger } from './messenger';
@@ -63,6 +64,16 @@ describe('chunkWords', () => {
   });
 });
 
+describe('parseInvite', () => {
+  it('accepts links and bare codes, rejects junk', () => {
+    expect(parseInvite('https://veil-secure-chat.fly.dev/join/cNGCfNPRMgLk')).toBe('cNGCfNPRMgLk');
+    expect(parseInvite('  Join "x" on Veil: https://a.b/join/abc_DEF-123 ')).toBe('abc_DEF-123');
+    expect(parseInvite('cNGCfNPRMgLk')).toBe('cNGCfNPRMgLk');
+    expect(parseInvite('hello there')).toBeNull();
+    expect(parseInvite('')).toBeNull();
+  });
+});
+
 describe('safetyNumber', () => {
   it('matches the library fingerprint generator', async () => {
     const a = await KeyHelper.generateIdentityKeyPair();
@@ -81,7 +92,11 @@ describe('end-to-end group chat', () => {
 
     const group = await alice.createGroup('Secret org');
     await bob.joinGroup(group.inviteCode);
+    const preview = await carol.api<any>('GET', `/api/invites/${group.inviteCode}`);
+    expect(preview).toMatchObject({ groupId: group.id, name: 'Secret org', memberCount: 2, alreadyMember: false });
+    await expect(carol.api('GET', '/api/invites/not-a-real-code')).rejects.toThrow(/invalid/);
     await carol.joinGroup(group.inviteCode);
+    expect((await carol.api<any>('GET', `/api/invites/${group.inviteCode}`)).alreadyMember).toBe(true);
     await waitFor(() => alice.groups[0]?.members.length === 3);
 
     const text = 'the eagle lands at midnight near the old pier bring nothing';

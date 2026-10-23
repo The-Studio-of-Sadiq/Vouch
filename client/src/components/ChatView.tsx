@@ -75,10 +75,12 @@ export function ChatView({
   m,
   group,
   onOpenRoster,
+  onInvite,
 }: {
   m: Messenger;
   group: Group;
   onOpenRoster: (msgId: string) => void;
+  onInvite: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -119,7 +121,18 @@ export function ChatView({
         </div>
       )}
       <ol className="messages" ref={listRef}>
-        {messages.length === 0 && (
+        {group.members.length === 1 && (
+          <li className="empty alone">
+            <p>
+              <strong>You're the only one here.</strong>
+            </p>
+            <p className="muted small">Send an invite link to the people you want in this group.</p>
+            <button className="btn primary" onClick={onInvite}>
+              Invite people
+            </button>
+          </li>
+        )}
+        {messages.length === 0 && group.members.length > 1 && (
           <li className="empty">
             <p>No messages yet.</p>
             <p className="muted small">

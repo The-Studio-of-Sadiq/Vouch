@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/share": "^8.0.3",
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
     "idb-keyval": "^6.3.0",
     "react": "^19.3.1",
