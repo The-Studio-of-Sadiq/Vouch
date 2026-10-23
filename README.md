@@ -5,14 +5,14 @@ Messages are split into word chunks that start out masked. Readers press and
 hold a chunk to reveal it through a small sliding window, and every member can
 see who has read which chunk.
 
-This replaces the earlier Flutter/Firebase prototype in the repo root.
+Successor to the Flutter/Firebase prototype in [anonymous-chatapp](https://github.com/princekhan7748/anonymous-chatapp).
 
 ## Run it
 
 Requires Node 22.5+ (uses the built-in `node:sqlite`).
 
 ```bash
-cd secure-chat
+git clone https://github.com/princekhan7748/veil-secure-chat.git && cd veil-secure-chat
 npm install
 npm run dev --workspace server   # API + relay on :8787
 npm run dev --workspace client   # UI on :5173 (proxies to :8787)
@@ -33,7 +33,7 @@ Requires JDK 21 and the Android SDK (platform 36). Android Studio provides
 both, or set `JAVA_HOME` and `ANDROID_HOME` yourself.
 
 ```bash
-cd secure-chat/client
+cd client
 npm run android:dev    # UI points at http://10.0.2.2:8787 (the host, seen from the emulator)
 npm run android:apk    # -> android/app/build/outputs/apk/debug/app-debug.apk
 ```
