@@ -35,7 +35,7 @@ function MessageItem({
   const others = group.members.filter((u) => u.id !== msg.senderId).length;
   const byUser = reads[msg.id] ?? {};
   const myReads = byUser[m.user.id] ?? {};
-  const fullyRead = Object.values(byUser).filter((r) => Object.keys(r).length >= msg.chunks.length).length;
+  const fullyRead = Object.values(byUser).filter((r) => msg.chunks.every((_, i) => r[i]?.read)).length;
 
   return (
     <li className={mine ? 'msg mine' : 'msg'}>
@@ -50,15 +50,15 @@ function MessageItem({
             index={i}
             text={c}
             maxWidth={width}
-            read={mine || !!myReads[i]}
-            onRead={() => !mine && m.markRead(group.id, msg.id, i)}
+            read={mine || !!myReads[i]?.read}
+            onView={(full) => !mine && m.recordView(group.id, msg.id, i, full)}
           />
         ))}
       </div>
       <button className="receipts" onClick={onOpenRoster} aria-label="Show who read which part">
         <span className="dots" aria-hidden>
           {msg.chunks.map((_, i) => {
-            const n = Object.values(byUser).filter((r) => r[i]).length;
+            const n = Object.values(byUser).filter((r) => r[i]?.read).length;
             const level = others ? n / others : 0;
             return <i key={i} style={{ opacity: 0.25 + 0.75 * level }} className={level >= 1 ? 'full' : ''} />;
           })}
@@ -136,8 +136,9 @@ export function ChatView({
           <li className="empty">
             <p>No messages yet.</p>
             <p className="muted small">
-              Every message is end-to-end encrypted and split into parts of {WORDS_PER_CHUNK} words. Readers press and
-              hold a part to reveal it a few letters at a time, and everyone can see who read which part.
+              Every message is end-to-end encrypted and split into parts of {WORDS_PER_CHUNK} words. Press and hold a
+              part, then slide your finger across it to reveal a few letters at a time. The Roster shows everyone who
+              opened and read which part, and how often.
             </p>
           </li>
         )}

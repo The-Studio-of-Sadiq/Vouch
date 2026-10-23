@@ -108,11 +108,23 @@ describe('end-to-end group chat', () => {
     expect(msg.senderId).toBe(alice.user.id);
 
     // Bob reveals chunks 0 and 2; everyone's roster should learn exactly that.
-    await bob.markRead(group.id, msg.id, 0);
-    await bob.markRead(group.id, msg.id, 2);
-    await waitFor(() => Object.keys(alice.getReads(group.id)[msg.id]?.[bob.user.id] ?? {}).length === 2);
-    await waitFor(() => Object.keys(carol.getReads(group.id)[msg.id]?.[bob.user.id] ?? {}).length === 2);
-    expect(Object.keys(alice.getReads(group.id)[msg.id][bob.user.id]).map(Number).sort()).toEqual([0, 2]);
+    // Bob opens part 0 twice (reading it fully the second time) and fully
+    // reads part 2 once; everyone's roster should learn exactly that.
+    await bob.recordView(group.id, msg.id, 0, false);
+    await bob.recordView(group.id, msg.id, 0, true);
+    await bob.recordView(group.id, msg.id, 2, true);
+    const bobOn = (m: typeof alice) => m.getReads(group.id)[msg.id]?.[bob.user.id] ?? {};
+    await waitFor(() => bobOn(alice)[0]?.opens === 2 && !!bobOn(alice)[2]?.read);
+    await waitFor(() => bobOn(carol)[0]?.opens === 2 && !!bobOn(carol)[2]?.read);
+    expect(bobOn(alice)[0]).toMatchObject({ opens: 2, read: true });
+    expect(bobOn(alice)[2]).toMatchObject({ opens: 1, read: true });
+    expect(bobOn(alice)[1]).toBeUndefined();
+    expect(bobOn(alice)[0].readAt).toBeGreaterThanOrEqual(bobOn(alice)[0].first);
+
+    // An open that doesn't reveal everything counts, but isn't a read.
+    await carol.recordView(group.id, msg.id, 1, false);
+    await waitFor(() => alice.getReads(group.id)[msg.id]?.[carol.user.id]?.[1]?.opens === 1);
+    expect(alice.getReads(group.id)[msg.id][carol.user.id][1].read).toBe(false);
 
     // Replies ratchet forward in the other direction too.
     await carol.sendText(group.id, 'copy that');

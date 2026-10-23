@@ -4,7 +4,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { CaptureShield } from './components/CaptureShield';
 import { ChatView } from './components/ChatView';
 import { GroupPanel } from './components/GroupPanel';
-import { MessageRoster } from './components/ReadRoster';
+import { GroupRosterScreen, MessageRoster } from './components/ReadRoster';
 import { API_BASE, WS_URL } from './lib/endpoint';
 import { parseInvite, peekPendingInvite, shareInvite, takePendingInvite, watchInvites } from './lib/invite';
 import { idbKV, wipeIdb } from './lib/kv';
@@ -26,7 +26,7 @@ export function App() {
   const [startError, setStartError] = useState('');
   const [, rerender] = useReducer((x: number) => x + 1, 0);
   const [groupId, setGroupId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<{ kind: 'group' } | { kind: 'message'; msgId: string } | null>(null);
+  const [panel, setPanel] = useState<{ kind: 'group' } | { kind: 'roster' } | { kind: 'message'; msgId: string } | null>(null);
   const [dialog, setDialog] = useState<'create' | 'join' | null>(null);
   const [invite, setInvite] = useState<string | null>(peekPendingInvite);
   const [shareNote, setShareNote] = useState('');
@@ -185,6 +185,9 @@ export function App() {
               <button className="btn small primary" onClick={invitePeople}>
                 {shareNote || 'Invite'}
               </button>
+              <button className="btn small" onClick={() => setPanel(panel?.kind === 'roster' ? null : { kind: 'roster' })}>
+                Roster
+              </button>
               <button className="btn small" onClick={() => setPanel(panel?.kind === 'group' ? null : { kind: 'group' })}>
                 Members
               </button>
@@ -212,13 +215,20 @@ export function App() {
       {panel && group && (
         <aside className="panel" aria-label={panel.kind === 'group' ? 'Group members' : 'Read roster'}>
           <header className="topbar">
-            <h2>{panel.kind === 'group' ? 'Members' : 'Who read what'}</h2>
+            {panel.kind === 'message' && (
+              <button className="btn small" onClick={() => setPanel({ kind: 'roster' })} aria-label="Back to the group roster">
+                ‹ Roster
+              </button>
+            )}
+            <h2>{panel.kind === 'group' ? 'Members' : panel.kind === 'roster' ? `${group.name} roster` : 'Who read what'}</h2>
             <button className="btn small" onClick={() => setPanel(null)} aria-label="Close panel">
               ✕
             </button>
           </header>
           {panel.kind === 'group' ? (
             <GroupPanel m={m} group={group} onInvite={invitePeople} onLeft={() => (setPanel(null), setGroupId(null))} />
+          ) : panel.kind === 'roster' ? (
+            <GroupRosterScreen m={m} group={group} onOpenMessage={(msgId) => setPanel({ kind: 'message', msgId })} />
           ) : panelMsg ? (
             <MessageRoster m={m} group={group} msg={panelMsg} reads={m.getReads(group.id)} />
           ) : null}

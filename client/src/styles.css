@@ -635,3 +635,69 @@ textarea:focus {
 .empty.alone p {
   margin: 0;
 }
+
+/* --- finger-following reveal lens --- */
+
+.reveal-lens {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* --- roster --- */
+
+.cell {
+  display: inline-grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-text);
+  vertical-align: middle;
+}
+.cell.opened {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+}
+.roster-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+.roster-msg-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  background: none;
+  border: 0;
+  padding: 0 0 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 4px 0 0;
+}
+.legend .cell {
+  margin-left: 6px;
+}
+.legend-n {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 6px;
+}

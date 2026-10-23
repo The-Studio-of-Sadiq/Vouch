@@ -135,9 +135,9 @@ Release builds refuse plain HTTP. The cleartext exception for
 | `client/src/lib/messenger.ts` | Signal sessions (X3DH + Double Ratchet via `libsignal-protocol-typescript`), pairwise group fan-out, encrypted read receipts, local storage, revocation handling |
 | `client/src/lib/signal-store.ts` | Persists identity, prekeys and ratchet state in the app's IndexedDB |
 | `client/src/lib/invite.ts` | Invite links, the Android share sheet and App Link handling |
-| `client/src/components/RevealChunk.tsx` | Canvas-rendered chunk with a sliding reveal window |
+| `client/src/components/RevealChunk.tsx` | Masked part; reveals the characters under the finger in a magnifier |
 | `client/src/components/CaptureShield.tsx` | Extra in-app capture deterrence on top of `FLAG_SECURE` |
-| `client/src/components/ReadRoster.tsx` | Per-message member × chunk grid, per-group progress |
+| `client/src/components/ReadRoster.tsx` | Group Roster screen and per-message grid: opens, full reads, times |
 | `client/android` | Capacitor shell: `FLAG_SECURE`, backups off, App Links for `/join/…` |
 | `server/src/app.ts` | Accounts, prekey directory, groups, store-and-forward relay, origin and device policies |
 | `server/src/pages.ts` | The only pages served: the invite landing page, a home page and `assetlinks.json` |
@@ -147,10 +147,23 @@ private keys never leave it. A group message is encrypted separately for each
 member over that pair's own Double Ratchet session (the way Signal handled
 groups before sender keys). Read receipts are ordinary encrypted messages too.
 
-**Reading.** Messages are split every 4 words (`WORDS_PER_CHUNK`). The text is
-painted on a `<canvas>` only while the chunk is held, so the plaintext is never
-in the page's DOM. A window of about 4 characters sweeps across the chunk. The
-chunk counts as read only after the window has covered all of it.
+**Reading.** Messages are split every 4 words (`WORDS_PER_CHUNK`). Every part
+starts masked. Press and hold a part, then slide your finger across it. Only
+the 3–4 characters under your finger are revealed, shown enlarged in a small
+magnifier just above it, because the fingertip itself would cover them. The
+window moves wherever and however fast the finger moves, so someone filming
+the screen with another phone gets an irregular trickle of fragments, not a
+steady sweep they could replay. The text is only ever painted on canvases
+while a part is held, never put in the page's DOM. A part counts as **read**
+once every character has been under the window during one hold. (Keyboard
+users get an automatic sweep instead.)
+
+**Roster.** Each group has a Roster that every member can see. It shows each
+member's totals, then every message, newest first: who opened which part, how
+many times, whether they read all of it, and when. Tapping the receipt dots
+under a message opens that message's grid. The roster travels as
+end-to-end-encrypted receipts between members, so the server never sees who
+read what. It only ever shows part numbers, never message text.
 
 **Inviting.** The Invite button shares a link,
 `https://veil-secure-chat.fly.dev/join/<code>`, through the Android share sheet.
@@ -172,8 +185,13 @@ Envelopes are deleted once the recipient acknowledges them.
 ## Known limits
 
 - **Screenshots.** `FLAG_SECURE` stops screenshots, recordings and casting.
-  It can't stop a rooted phone or a camera pointed at the screen. The sliding
-  window limits what any single photo or video frame shows.
+  It can't stop a rooted phone or a camera pointed at the screen. The
+  finger-driven window limits what any single photo or video frame shows, but a
+  determined person filming a slow, careful swipe can still piece a part
+  together.
+- **Receipts are reported by each member's own phone.** A modified client could
+  lie about what it opened. The roster shows what members' apps report, not
+  proof.
 - **iOS.** There's no iOS app yet. It would need its own shell that hides
   content while the screen is being captured (`UIScreen.isCaptured`).
 - **Account takeover.** One device per account makes a takeover visible, but

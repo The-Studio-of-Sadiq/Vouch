@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { Group } from '../../../shared/protocol';
 import { inviteLink } from '../lib/invite';
 import type { Messenger } from '../lib/messenger';
-import { GroupRoster } from './ReadRoster';
 
 export function GroupPanel({ m, group, onLeft, onInvite }: { m: Messenger; group: Group; onLeft: () => void; onInvite: () => void }) {
   const [safety, setSafety] = useState<{ userId: string; value: string } | null>(null);
@@ -44,11 +43,6 @@ export function GroupPanel({ m, group, onLeft, onInvite }: { m: Messenger; group
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-      </section>
-
-      <section>
-        <h3>Read progress</h3>
-        <GroupRoster m={m} group={group} />
       </section>
 
       <section>

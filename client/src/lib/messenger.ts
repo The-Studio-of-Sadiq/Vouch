@@ -33,13 +33,49 @@ export interface ChatMessage {
   sentAt: number;
 }
 
-// msgId -> userId -> chunk index -> time first revealed
-export type GroupReads = Record<string, Record<string, Record<number, number>>>;
+// What one member did with one part of a message.
+export interface PartRead {
+  opens: number; // how many times they held it open
+  read: boolean; // whether they ever revealed every character of it
+  first: number; // first opened
+  last: number; // last opened
+  readAt?: number; // first time it was fully read
+}
+
+// msgId -> userId -> chunk index -> activity
+export type GroupReads = Record<string, Record<string, Record<number, PartRead>>>;
+
+// Older receipts and stored data held only the time a part was first read.
+function normalize(reads: Record<string, Record<string, Record<number, PartRead | number>>>): GroupReads {
+  for (const byUser of Object.values(reads))
+    for (const parts of Object.values(byUser))
+      for (const [i, v] of Object.entries(parts))
+        if (typeof v === 'number') parts[Number(i)] = { opens: 1, read: true, first: v, last: v, readAt: v };
+  return reads as GroupReads;
+}
+
+function merge(into: PartRead | undefined, from: PartRead): PartRead {
+  if (!into) return { ...from };
+  const readAt = [into.readAt, from.readAt].filter((x): x is number => typeof x === 'number');
+  return {
+    opens: Math.max(into.opens, from.opens),
+    read: into.read || from.read,
+    first: Math.min(into.first, from.first),
+    last: Math.max(into.last, from.last),
+    readAt: readAt.length ? Math.min(...readAt) : undefined,
+  };
+}
+
+interface PartView extends PartRead {
+  i: number;
+}
 
 // The plaintext inside every Signal envelope. The server never sees this.
 type Payload =
   | { v: 1; kind: 'msg'; groupId: string; id: string; chunks: string[]; sentAt: number }
-  | { v: 1; kind: 'read'; groupId: string; msgId: string; chunks: number[]; at: number };
+  // `chunks` lists fully read parts (what 1.2 and older understand); `views`
+  // carries the reader's full, absolute activity per part.
+  | { v: 1; kind: 'read'; groupId: string; msgId: string; chunks: number[]; views?: PartView[]; at: number };
 
 interface SignedPreKeyRecord {
   keyId: number;
@@ -74,7 +110,7 @@ export class Messenger {
   private retry = 0;
   private inbox: Promise<void> = Promise.resolve();
   private pendingSends = new Map<string, (rejected: string[]) => void>();
-  private pendingReceipts = new Map<string, { groupId: string; chunks: Set<number> }>();
+  private pendingReceipts = new Map<string, { groupId: string; parts: Set<number> }>();
   private receiptTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private opts: MessengerOptions) {
@@ -223,7 +259,7 @@ export class Messenger {
 
   private async loadGroup(groupId: string) {
     if (!this.messages.has(groupId)) this.messages.set(groupId, (await this.kv.get(`messages:${groupId}`)) ?? []);
-    if (!this.reads.has(groupId)) this.reads.set(groupId, (await this.kv.get(`reads:${groupId}`)) ?? {});
+    if (!this.reads.has(groupId)) this.reads.set(groupId, normalize((await this.kv.get(`reads:${groupId}`)) ?? {}));
   }
 
   async createGroup(name: string) {
@@ -271,14 +307,22 @@ export class Messenger {
     await this.broadcast(groupId, { v: 1, kind: 'msg', groupId, id: msg.id, chunks, sentAt: msg.sentAt });
   }
 
-  // Records that this user revealed a chunk. Receipts are batched briefly and
-  // then sent end-to-end encrypted to every member, like any other message.
-  async markRead(groupId: string, msgId: string, chunk: number) {
-    const reads = this.getReads(groupId);
-    if (reads[msgId]?.[this.user.id]?.[chunk]) return;
-    await this.applyReads(groupId, msgId, this.user.id, [chunk], Date.now());
-    const pending = this.pendingReceipts.get(msgId) ?? { groupId, chunks: new Set() };
-    pending.chunks.add(chunk);
+  // Records that this user held a part open (`full` if they revealed all of
+  // it). Receipts are batched briefly, then sent end-to-end encrypted to every
+  // member like any other message, so everyone's roster stays in sync.
+  async recordView(groupId: string, msgId: string, chunk: number, full: boolean) {
+    const now = Date.now();
+    const prev = this.getReads(groupId)[msgId]?.[this.user.id]?.[chunk];
+    const next: PartRead = {
+      opens: (prev?.opens ?? 0) + 1,
+      read: !!prev?.read || full,
+      first: prev?.first ?? now,
+      last: now,
+      readAt: prev?.readAt ?? (full ? now : undefined),
+    };
+    await this.applyReads(groupId, msgId, this.user.id, { [chunk]: next });
+    const pending = this.pendingReceipts.get(msgId) ?? { groupId, parts: new Set() };
+    pending.parts.add(chunk);
     this.pendingReceipts.set(msgId, pending);
     clearTimeout(this.receiptTimer);
     this.receiptTimer = setTimeout(() => void this.flushReceipts(), RECEIPT_FLUSH_MS);
@@ -287,9 +331,14 @@ export class Messenger {
   async flushReceipts() {
     const batch = [...this.pendingReceipts];
     this.pendingReceipts.clear();
-    for (const [msgId, { groupId, chunks }] of batch) {
-      await this.broadcast(groupId, { v: 1, kind: 'read', groupId, msgId, chunks: [...chunks], at: Date.now() }).catch(
-        (e) => console.warn('receipt failed', e),
+    for (const [msgId, { groupId, parts }] of batch) {
+      const mine = this.getReads(groupId)[msgId]?.[this.user.id] ?? {};
+      const views = [...parts].map((i) => ({ i, ...mine[i] }));
+      const chunks = Object.entries(mine)
+        .filter(([, v]) => v.read)
+        .map(([i]) => Number(i));
+      await this.broadcast(groupId, { v: 1, kind: 'read', groupId, msgId, chunks, views, at: Date.now() }).catch((e) =>
+        console.warn('receipt failed', e),
       );
     }
   }
@@ -428,10 +477,22 @@ export class Messenger {
 
     if (p.kind === 'msg' && Array.isArray(p.chunks) && p.chunks.every((c) => typeof c === 'string')) {
       await this.storeMessage({ id: String(p.id), groupId: group.id, senderId: env.from, chunks: p.chunks, sentAt: Number(p.sentAt) });
-    } else if (p.kind === 'read' && Array.isArray(p.chunks)) {
+    } else if (p.kind === 'read') {
       const msg = this.getMessages(group.id).find((m) => m.id === p.msgId);
-      const valid = p.chunks.filter((c) => Number.isInteger(c) && c >= 0 && (!msg || c < msg.chunks.length));
-      if (valid.length) await this.applyReads(group.id, String(p.msgId), env.from, valid, Number(p.at));
+      const okIndex = (c: unknown): c is number => Number.isInteger(c) && (c as number) >= 0 && (!msg || (c as number) < msg.chunks.length);
+      const at = Number(p.at) || Date.now();
+      const parts: Record<number, PartRead> = {};
+      if (Array.isArray(p.views)) {
+        for (const v of p.views) {
+          if (!okIndex(v?.i) || !Number.isInteger(v.opens) || v.opens < 1 || v.opens > 1_000_000) continue;
+          const first = Number(v.first) || at;
+          parts[v.i] = { opens: v.opens, read: !!v.read, first, last: Math.max(first, Number(v.last) || at), readAt: v.read ? Number(v.readAt) || at : undefined };
+        }
+      } else if (Array.isArray(p.chunks)) {
+        // Receipt from an older version: it only says which parts were read.
+        for (const c of p.chunks) if (okIndex(c)) parts[c] = { opens: 1, read: true, first: at, last: at, readAt: at };
+      }
+      if (Object.keys(parts).length) await this.applyReads(group.id, String(p.msgId), env.from, parts);
     }
   }
 
@@ -445,11 +506,11 @@ export class Messenger {
     this.emit();
   }
 
-  private async applyReads(groupId: string, msgId: string, userId: string, chunks: number[], at: number) {
+  private async applyReads(groupId: string, msgId: string, userId: string, parts: Record<number, PartRead>) {
     await this.loadGroup(groupId);
     const reads = this.reads.get(groupId)!;
     const byUser = ((reads[msgId] ??= {})[userId] ??= {});
-    for (const c of chunks) byUser[c] ??= at;
+    for (const [i, v] of Object.entries(parts)) byUser[Number(i)] = merge(byUser[Number(i)], v);
     // Replace the object so React consumers see a new reference.
     this.reads.set(groupId, { ...reads });
     await this.kv.set(`reads:${groupId}`, reads);
