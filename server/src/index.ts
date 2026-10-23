@@ -10,7 +10,6 @@ mkdirSync(dirname(dbPath), { recursive: true });
 const server = createServer({
   dbPath,
   port: Number(process.env.PORT ?? 8787),
-  staticDir: resolve(here, '../../client/dist'),
   corsOrigins: process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean),
 });
 

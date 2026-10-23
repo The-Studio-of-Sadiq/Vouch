@@ -5,8 +5,8 @@ import type { Group } from '../../../shared/protocol';
 import { API_BASE } from './endpoint';
 
 // Invite links look like https://<server>/join/<code>. On a phone with the app
-// installed they open the app (Android App Link); anywhere else they open the
-// web client, which can sign up and join directly.
+// installed they open the app (a verified Android App Link). Without the app,
+// the server shows a page explaining that Veil is Android-only.
 
 const PENDING_KEY = 'secure-chat:pending-invite';
 const CODE = /^[A-Za-z0-9_-]{6,64}$/;
@@ -49,17 +49,6 @@ export function peekPendingInvite(): string | null {
   }
 }
 
-// Reads an invite from the page URL (/join/<code> on the web) before the first
-// render, so the sign-in screen can already offer account creation.
-export function initialInvite(): string | null {
-  const fromPath = location.pathname.startsWith('/join/') ? parseInvite(location.pathname) : null;
-  if (fromPath) {
-    savePendingInvite(fromPath);
-    history.replaceState(null, '', '/');
-  }
-  return fromPath ?? peekPendingInvite();
-}
-
 // Calls `onInvite` for the link that launched the native app and for links
 // opened while it is running.
 export async function watchInvites(onInvite: (code: string) => void) {
@@ -80,17 +69,14 @@ export async function watchInvites(onInvite: (code: string) => void) {
   return () => void handle.remove();
 }
 
-// Opens the system share sheet where there is one; otherwise copies the link.
+// Opens the Android share sheet; copies the link when running outside the app
+// (local development only).
 export async function shareInvite(group: Group): Promise<'shared' | 'copied' | 'cancelled'> {
   const url = inviteLink(group.inviteCode);
   const text = `Join "${group.name}" on Veil, an end-to-end encrypted group chat:`;
   try {
     if (Capacitor.isNativePlatform()) {
       await Share.share({ title: `Join ${group.name}`, text, url, dialogTitle: 'Invite people' });
-      return 'shared';
-    }
-    if (navigator.share) {
-      await navigator.share({ title: `Join ${group.name}`, text, url });
       return 'shared';
     }
   } catch (e) {

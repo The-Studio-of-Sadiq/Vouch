@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import type { AuthResponse } from '../../../shared/protocol';
 import { API_BASE } from '../lib/endpoint';
 
-export function AuthScreen({ onAuthed, inviting = false }: { onAuthed: (a: AuthResponse) => void; inviting?: boolean }) {
+export function AuthScreen({
+  onAuthed,
+  inviting = false,
+  notice = '',
+}: {
+  onAuthed: (a: AuthResponse) => void;
+  inviting?: boolean;
+  notice?: string;
+}) {
   // Someone arriving from an invite link most likely has no account yet.
   const [mode, setMode] = useState<'login' | 'register'>(inviting ? 'register' : 'login');
   // A native app link can arrive after the first render.
@@ -43,6 +51,14 @@ export function AuthScreen({ onAuthed, inviting = false }: { onAuthed: (a: AuthR
           <h1>Veil</h1>
         </div>
         <p className="muted">End-to-end encrypted group chat. Messages are revealed a few letters at a time.</p>
+        {notice && (
+          <p className="banner warn" role="alert">
+            {notice}
+          </p>
+        )}
+        {mode === 'login' && !notice && (
+          <p className="small muted">Signing in here signs your account out of any other phone. One device per account.</p>
+        )}
         {inviting && (
           <p className="banner invite-banner">You've been invited to a group. Create an account or sign in to join it.</p>
         )}

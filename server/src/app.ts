@@ -1,9 +1,8 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { openDb } from './db.js';
+import { ASSET_LINKS, HOME_PAGE, INVITE_PAGE, PAGE_CSP } from './pages.js';
 import type {
   AuthResponse,
   ClientFrame,
@@ -21,13 +20,15 @@ import { PREKEY_LOW_WATER } from '../../shared/protocol.js';
 export interface ServerOptions {
   dbPath: string;
   port: number;
-  staticDir?: string;
-  // Extra origins allowed to call the API cross-origin (the Android app).
+  // Extra browser origins allowed to use the API. For local development only;
+  // production allows nothing but the Android app.
   corsOrigins?: string[];
 }
 
-// Origins Capacitor serves the bundled UI from inside the native app.
+// Origins Capacitor serves the bundled UI from inside the native app. Veil has
+// no browser version: any other browser origin is refused (see `originAllowed`).
 const NATIVE_ORIGINS = ['https://localhost', 'capacitor://localhost'];
+const BROWSER_REFUSED = 'Veil only works in the Android app.';
 
 class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -38,15 +39,6 @@ class HttpError extends Error {
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const MAX_BODY = 512 * 1024;
 const MAX_ENVELOPE = 64 * 1024;
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript',
-  '.css': 'text/css',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.json': 'application/json',
-};
 
 function hashPassword(password: string, salt: string) {
   return scryptSync(password, salt, 64, SCRYPT).toString('base64');
@@ -63,6 +55,7 @@ function validPreKey(k: PreKeyUpload) {
 export function createServer(opts: ServerOptions) {
   const db = openDb(opts.dbPath);
   const sockets = new Map<string, Set<WebSocket>>();
+  const socketTokens = new WeakMap<WebSocket, string>();
   const loginFailures = new Map<string, { count: number; until: number }>();
 
   // --- data helpers --------------------------------------------------------
@@ -74,6 +67,7 @@ export function createServer(opts: ServerOptions) {
     insertSession: db.prepare('INSERT INTO sessions (token, user_id, created) VALUES (?, ?, ?)'),
     session: db.prepare('SELECT user_id FROM sessions WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
+    revokeOtherSessions: db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ? RETURNING token'),
     identity: db.prepare('SELECT * FROM identities WHERE user_id = ?'),
     upsertIdentity: db.prepare(`
       INSERT INTO identities (user_id, registration_id, identity_key, signed_prekey_id, signed_prekey, signed_prekey_sig, updated)
@@ -137,6 +131,15 @@ export function createServer(opts: ServerOptions) {
       inviteCode: row.invite_code,
       members: q.groupMembers.all(row.id) as unknown as PublicUser[],
     };
+  }
+
+  // Tells a signed-out device to wipe itself, then drops its connection.
+  function revokeSockets(userId: string, tokens: Set<string>) {
+    for (const ws of sockets.get(userId) ?? []) {
+      if (!tokens.has(socketTokens.get(ws) ?? '')) continue;
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'revoked' } satisfies ServerFrame));
+      ws.close(4001, 'signed in on another device');
+    }
   }
 
   function push(userId: string, frame: ServerFrame) {
@@ -206,7 +209,9 @@ export function createServer(opts: ServerOptions) {
   });
 
   // Replaces the account's identity (new device / reinstall) and its prekeys.
-  route('PUT', '/api/keys', true, ({ userId, body }) => {
+  // One device per account: a new identity signs every other session out, and
+  // those devices wipe their keys and history when told they were revoked.
+  route('PUT', '/api/keys', true, ({ userId, body, token }) => {
     const k = body as KeyUpload;
     if (
       !Number.isInteger(k?.registrationId) ||
@@ -219,17 +224,21 @@ export function createServer(opts: ServerOptions) {
     )
       throw new HttpError(400, 'Malformed key bundle.');
     const prev = q.identity.get(userId) as any;
+    const changed = !prev || prev.identity_key !== k.identityKey;
+    let revoked: string[] = [];
     tx(() => {
+      if (changed) revoked = (q.revokeOtherSessions.all(userId, token) as { token: string }[]).map((r) => r.token);
       q.upsertIdentity.run(
         userId, k.registrationId, k.identityKey, k.signedPreKey.keyId, k.signedPreKey.publicKey, k.signedPreKey.signature, Date.now(),
       );
       if (!prev || prev.identity_key !== k.identityKey) q.deletePreKeys.run(userId);
       for (const p of k.preKeys) q.insertPreKey.run(userId, p.keyId, p.publicKey);
     });
-    if (prev && prev.identity_key !== k.identityKey) {
+    if (revoked.length) revokeSockets(userId!, new Set(revoked));
+    if (prev && changed) {
       for (const c of q.contacts.all(userId, userId) as any[]) push(c.id, { t: 'identity', userId: userId! });
     }
-    return { ok: true };
+    return { ok: true, revokedSessions: revoked.length };
   });
 
   route('POST', '/api/keys/prekeys', true, ({ userId, body }) => {
@@ -335,24 +344,20 @@ export function createServer(opts: ServerOptions) {
     }
   }
 
-  function serveStatic(req: IncomingMessage, res: ServerResponse) {
-    if (!opts.staticDir) return false;
-    const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
-    let file = normalize(join(opts.staticDir, urlPath));
-    if (!file.startsWith(normalize(opts.staticDir))) return false;
-    if (!existsSync(file) || statSync(file).isDirectory()) file = join(opts.staticDir, 'index.html');
-    if (!existsSync(file)) return false;
-    res.writeHead(200, {
-      'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-      'content-security-policy':
-        "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      'x-frame-options': 'DENY',
-    });
-    res.end(readFileSync(file));
-    return true;
-  }
-
   const allowedOrigins = new Set([...NATIVE_ORIGINS, ...(opts.corsOrigins ?? [])]);
+  // Browsers always send Origin on cross-origin and WebSocket requests. The app
+  // and non-browser tools send an allowed origin or none at all.
+  const originAllowed = (req: IncomingMessage) => !req.headers.origin || allowedOrigins.has(req.headers.origin);
+
+  function sendPage(res: ServerResponse, type: string, body: string) {
+    res.writeHead(200, {
+      'content-type': type,
+      'content-security-policy': PAGE_CSP,
+      'x-frame-options': 'DENY',
+      'cache-control': 'no-store',
+    });
+    res.end(body);
+  }
 
   const http = createHttpServer(async (req, res) => {
     res.setHeader('x-content-type-options', 'nosniff');
@@ -366,15 +371,22 @@ export function createServer(opts: ServerOptions) {
       res.setHeader('access-control-allow-methods', 'GET, POST, PUT');
       res.setHeader('access-control-max-age', '600');
     }
+    const path = (req.url ?? '/').split('?')[0];
+    if (path.startsWith('/api/') && !originAllowed(req)) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: BROWSER_REFUSED }));
+      return;
+    }
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
       return;
     }
-    const path = (req.url ?? '/').split('?')[0];
     try {
       if (!path.startsWith('/api/')) {
-        if (req.method === 'GET' && serveStatic(req, res)) return;
+        if (req.method === 'GET' && path === '/.well-known/assetlinks.json') return sendPage(res, 'application/json', ASSET_LINKS);
+        if (req.method === 'GET' && /^\/join\/[A-Za-z0-9_-]+\/?$/.test(path)) return sendPage(res, 'text/html; charset=utf-8', INVITE_PAGE);
+        if (req.method === 'GET' && path === '/') return sendPage(res, 'text/html; charset=utf-8', HOME_PAGE);
         throw new HttpError(404, 'Not found.');
       }
       for (const r of routes) {
@@ -404,13 +416,22 @@ export function createServer(opts: ServerOptions) {
 
   http.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://x');
-    const userId = url.pathname === '/ws' ? authUser(url.searchParams.get('token')) : null;
+    if (!originAllowed(req)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const token = url.searchParams.get('token');
+    const userId = url.pathname === '/ws' ? authUser(token) : null;
     if (!userId) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => onSocket(ws, userId));
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      socketTokens.set(ws, token!);
+      onSocket(ws, userId);
+    });
   });
 
   function onSocket(ws: WebSocket, userId: string) {

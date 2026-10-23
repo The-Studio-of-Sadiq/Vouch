@@ -6,8 +6,8 @@ import { ChatView } from './components/ChatView';
 import { GroupPanel } from './components/GroupPanel';
 import { MessageRoster } from './components/ReadRoster';
 import { API_BASE, WS_URL } from './lib/endpoint';
-import { initialInvite, parseInvite, shareInvite, takePendingInvite, watchInvites } from './lib/invite';
-import { idbKV } from './lib/kv';
+import { parseInvite, peekPendingInvite, shareInvite, takePendingInvite, watchInvites } from './lib/invite';
+import { idbKV, wipeIdb } from './lib/kv';
 import { Messenger } from './lib/messenger';
 
 const SESSION_KEY = 'secure-chat:session';
@@ -28,8 +28,9 @@ export function App() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [panel, setPanel] = useState<{ kind: 'group' } | { kind: 'message'; msgId: string } | null>(null);
   const [dialog, setDialog] = useState<'create' | 'join' | null>(null);
-  const [invite, setInvite] = useState<string | null>(initialInvite);
+  const [invite, setInvite] = useState<string | null>(peekPendingInvite);
   const [shareNote, setShareNote] = useState('');
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     let stop = () => {};
@@ -45,7 +46,24 @@ export function App() {
       token: session.token,
       user: session.user,
       kv: idbKV(session.user.id),
+      // One device per account: another phone signed in, so this one erases
+      // its keys and history and signs out.
+      onRevoked: () => revoked(),
     });
+    // One device per account: another phone signed in, so this one erases its
+    // keys and history and signs out. A stored session only stops working this
+    // way, so a "not signed in" at startup means the same thing.
+    const revoked = () => {
+      messenger.stop();
+      localStorage.removeItem(SESSION_KEY);
+      setSession(null);
+      setGroupId(null);
+      setPanel(null);
+      setNotice(
+        'Your account was signed in on another phone. Veil allows one device per account, so this phone was signed out and its keys and messages were erased.',
+      );
+      void wipeIdb(session.user.id);
+    };
     const unsub = messenger.subscribe(rerender);
     setStartError('');
     let cancelled = false;
@@ -57,7 +75,7 @@ export function App() {
         .then(() => !cancelled && setM(messenger))
         .catch((e: Error) => {
           if (cancelled) return;
-          if (/not signed in/i.test(e.message)) signOut();
+          if (/not signed in/i.test(e.message)) revoked();
           else setStartError(e.message);
         }),
     );
@@ -86,7 +104,7 @@ export function App() {
   if (!session) {
     return (
       <>
-        <AuthScreen onAuthed={signIn} inviting={!!invite} />
+        <AuthScreen onAuthed={(a) => (setNotice(''), signIn(a))} inviting={!!invite} notice={notice} />
       </>
     );
   }

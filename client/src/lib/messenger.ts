@@ -53,6 +53,9 @@ export interface MessengerOptions {
   token: string;
   user: Me;
   kv: KV;
+  // Called when the server signed this device out because the account signed
+  // in on another device. The caller must wipe local data.
+  onRevoked?: () => void;
 }
 
 export class Messenger {
@@ -330,16 +333,36 @@ export class Messenger {
       this.connected = true;
       this.emit();
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.connected = false;
       this.emit();
-      if (!this.stopped) setTimeout(() => this.connect(), Math.min(15_000, 500 * 2 ** this.retry++));
+      if (this.stopped) return;
+      if (ev.code === 4001) return this.revoked();
+      setTimeout(() => void this.reconnect(), Math.min(15_000, 500 * 2 ** this.retry++));
     };
     ws.onmessage = (ev) => {
       const frame = JSON.parse(String(ev.data)) as ServerFrame;
       // Signal sessions are stateful, so frames are processed strictly in order.
       this.inbox = this.inbox.then(() => this.onFrame(frame)).catch((e) => console.error(e));
     };
+  }
+
+  // A device that was offline when it got revoked finds out on reconnect: its
+  // token no longer works.
+  private async reconnect() {
+    if (this.stopped) return;
+    try {
+      await this.api('GET', '/api/me');
+    } catch (e) {
+      if (/not signed in/i.test((e as Error).message)) return this.revoked();
+    }
+    this.connect();
+  }
+
+  private revoked() {
+    if (this.stopped) return;
+    this.stop();
+    this.opts.onRevoked?.();
   }
 
   private async onFrame(frame: ServerFrame) {
@@ -357,6 +380,9 @@ export class Messenger {
         break;
       case 'identity':
         await this.acceptNewIdentity(frame.userId);
+        break;
+      case 'revoked':
+        this.revoked();
         break;
       case 'prekeys-low':
         await this.replenishPreKeys();

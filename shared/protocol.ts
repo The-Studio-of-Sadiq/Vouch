@@ -71,7 +71,9 @@ export type ServerFrame =
   | { t: 'sent'; ref: string; rejected: string[] }
   | { t: 'group'; groupId: string }
   | { t: 'identity'; userId: string }
-  | { t: 'prekeys-low' };
+  | { t: 'prekeys-low' }
+  // This device was signed out because the account signed in on another one.
+  | { t: 'revoked' };
 
 export const PREKEY_BATCH = 100;
 export const PREKEY_LOW_WATER = 20;
