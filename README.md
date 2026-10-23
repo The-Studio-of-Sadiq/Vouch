@@ -21,6 +21,30 @@ npm run dev --workspace client   # UI on :5173 (proxies to :8787)
 Production: `npm run build --workspace client`, then `npm start --workspace server`
 serves the built UI and the API from port 8787. Put it behind HTTPS.
 
+### Android app (OS-level screenshot blocking)
+
+`client/android` is a Capacitor shell around the same client. `MainActivity`
+sets `FLAG_SECURE`, so Android refuses screenshots and screen recordings,
+casting shows a black screen, and the app's preview in recent apps is blank.
+Backups and device-to-device transfer are turned off, so the Signal keys
+stored in the app never leave the phone.
+
+Requires JDK 21 and the Android SDK (platform 36). Android Studio provides
+both, or set `JAVA_HOME` and `ANDROID_HOME` yourself.
+
+```bash
+cd secure-chat/client
+npm run android:dev    # UI points at http://10.0.2.2:8787 (the host, seen from the emulator)
+npm run android:apk    # -> android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+For a real device or a release, build with your HTTPS server instead:
+`VITE_SERVER_URL=https://chat.example.com npm run android:release`, then build
+from Android Studio. Release builds refuse plain HTTP. The cleartext
+exception for `10.0.2.2`/`localhost` is only in the debug source set. The
+server already allows requests from the app's `https://localhost` origin. If
+you need more origins, add them with `CORS_ORIGINS`.
+
 Tests (real server + three in-memory clients):
 
 ```bash
@@ -61,13 +85,14 @@ Envelopes are deleted once the recipient acknowledges them.
 
 ## Known limits
 
-- **Screenshots.** A browser cannot block OS screenshots or a camera pointed at
-  the screen. The capture shield blanks the app whenever the window loses
-  focus, the tab is hidden, or a screenshot shortcut is pressed. It also blocks
-  printing, selection, copy and the context menu. The sliding window means any
-  single frame shows only a fragment. For OS-level blocking, wrap the client in
-  Capacitor and set `FLAG_SECURE` on Android, and hide content while
-  `UIScreen.isCaptured` on iOS.
+- **Screenshots.** The Android app blocks them at the OS level with
+  `FLAG_SECURE`. Rooted devices and a camera pointed at the screen can still
+  get around it. In a browser nothing can block OS screenshots. There, the
+  capture shield blanks the app whenever the window loses focus, the tab is
+  hidden, or a screenshot shortcut is pressed. It also blocks printing,
+  selection, copy and the context menu. On both, the sliding window means any
+  single frame shows only a fragment. iOS has no equivalent yet; it would need
+  a Capacitor iOS shell that hides content while `UIScreen.isCaptured`.
 - **One device per account.** Signing in on a new browser creates a new
   identity. Other members see "key changed", and history stays on the old
   device.

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { AuthResponse } from '../../../shared/protocol';
+import { API_BASE } from '../lib/endpoint';
 
 export function AuthScreen({ onAuthed }: { onAuthed: (a: AuthResponse) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -14,7 +15,7 @@ export function AuthScreen({ onAuthed }: { onAuthed: (a: AuthResponse) => void }
     setBusy(true);
     setError('');
     try {
-      const res = await fetch(`/api/${mode}`, {
+      const res = await fetch(`${API_BASE}/api/${mode}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, name, password }),

@@ -22,7 +22,12 @@ export interface ServerOptions {
   dbPath: string;
   port: number;
   staticDir?: string;
+  // Extra origins allowed to call the API cross-origin (the Android app).
+  corsOrigins?: string[];
 }
+
+// Origins Capacitor serves the bundled UI from inside the native app.
+const NATIVE_ORIGINS = ['https://localhost', 'capacitor://localhost'];
 
 class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -333,9 +338,25 @@ export function createServer(opts: ServerOptions) {
     return true;
   }
 
+  const allowedOrigins = new Set([...NATIVE_ORIGINS, ...(opts.corsOrigins ?? [])]);
+
   const http = createHttpServer(async (req, res) => {
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.has(origin)) {
+      // Auth is a bearer token, never a cookie, so no credentials mode needed.
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('vary', 'origin');
+      res.setHeader('access-control-allow-headers', 'authorization, content-type');
+      res.setHeader('access-control-allow-methods', 'GET, POST, PUT');
+      res.setHeader('access-control-max-age', '600');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     const path = (req.url ?? '/').split('?')[0];
     try {
       if (!path.startsWith('/api/')) {

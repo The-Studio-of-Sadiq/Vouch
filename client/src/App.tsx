@@ -5,6 +5,7 @@ import { CaptureShield } from './components/CaptureShield';
 import { ChatView } from './components/ChatView';
 import { GroupPanel } from './components/GroupPanel';
 import { MessageRoster } from './components/ReadRoster';
+import { API_BASE, WS_URL } from './lib/endpoint';
 import { idbKV } from './lib/kv';
 import { Messenger } from './lib/messenger';
 
@@ -29,10 +30,9 @@ export function App() {
 
   useEffect(() => {
     if (!session) return;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const messenger = new Messenger({
-      baseUrl: '',
-      wsUrl: `${proto}//${location.host}/ws`,
+      baseUrl: API_BASE,
+      wsUrl: WS_URL,
       token: session.token,
       user: session.user,
       kv: idbKV(session.user.id),
@@ -67,7 +67,7 @@ export function App() {
   };
 
   const signOut = () => {
-    if (session) fetch('/api/logout', { method: 'POST', headers: { authorization: `Bearer ${session.token}` } }).catch(() => {});
+    if (session) fetch(`${API_BASE}/api/logout`, { method: 'POST', headers: { authorization: `Bearer ${session.token}` } }).catch(() => {});
     localStorage.removeItem(SESSION_KEY);
     setSession(null);
     setGroupId(null);
