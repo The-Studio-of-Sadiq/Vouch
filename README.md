@@ -102,3 +102,9 @@ Envelopes are deleted once the recipient acknowledges them.
   inherent to the design.
 - `@privacyresearch/libsignal-protocol-typescript` is **GPL-3.0**, so the
   distributed client is GPL-3.0 as well.
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE). It has to be GPL because the Signal
+implementation it uses, `@privacyresearch/libsignal-protocol-typescript`, is
+GPL-3.0.

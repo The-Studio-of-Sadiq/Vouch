@@ -1,7 +1,11 @@
 {
   "name": "secure-chat",
   "private": true,
-  "workspaces": ["server", "client"],
+  "license": "GPL-3.0-only",
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace server & npm run dev --workspace client",
     "test": "npm test --workspace client"

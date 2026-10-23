@@ -1,6 +1,7 @@
 {
   "name": "secure-chat-server",
   "private": true,
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
