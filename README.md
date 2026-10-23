@@ -21,6 +21,25 @@ npm run dev --workspace client   # UI on :5173 (proxies to :8787)
 Production: `npm run build --workspace client`, then `npm start --workspace server`
 serves the built UI and the API from port 8787. Put it behind HTTPS.
 
+### Deploy (Fly.io)
+
+The live server is **https://veil-secure-chat.fly.dev**. It also serves the web
+client. `Dockerfile` and `fly.toml` deploy it as a single machine in Singapore,
+with SQLite on an encrypted volume (`veil_data`, mounted at `/data`). The
+machine stops when idle and starts on the next request.
+
+```bash
+fly deploy --remote-only    # rebuild and roll out
+fly logs                    # tail server logs
+```
+
+Check a deployment end to end. This creates two throwaway `smoke-*@example.test`
+accounts, then exchanges an encrypted message and a read receipt:
+
+```bash
+cd client && npx tsx scripts/smoke.ts https://veil-secure-chat.fly.dev
+```
+
 ### Android app (OS-level screenshot blocking)
 
 `client/android` is a Capacitor shell around the same client. `MainActivity`
@@ -38,12 +57,24 @@ npm run android:dev    # UI points at http://10.0.2.2:8787 (the host, seen from 
 npm run android:apk    # -> android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-For a real device or a release, build with your HTTPS server instead:
-`VITE_SERVER_URL=https://chat.example.com npm run android:release`, then build
-from Android Studio. Release builds refuse plain HTTP. The cleartext
-exception for `10.0.2.2`/`localhost` is only in the debug source set. The
-server already allows requests from the app's `https://localhost` origin. If
-you need more origins, add them with `CORS_ORIGINS`.
+**Release APK for real phones**, pointed at the Fly server:
+
+```bash
+cd client
+npm run android:release   # -> android/app/build/outputs/apk/release/app-release.apk
+```
+
+The release build is signed with the key described by
+`~/.veil-signing/keystore.properties`. Set `VEIL_KEYSTORE_PROPERTIES` to use a
+different file. That file and the keystore are kept out of git. **Back them up
+somewhere safe:** every future update has to be signed with the same key, or
+phones will refuse to install it over the old version. Without the file, the
+release build comes out unsigned.
+
+Release builds refuse plain HTTP. The cleartext exception for
+`10.0.2.2`/`localhost` exists only in debug builds. The server allows requests
+from the app's `https://localhost` origin; add other origins with
+`CORS_ORIGINS`.
 
 Tests (real server + three in-memory clients):
 

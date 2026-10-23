@@ -1,0 +1,33 @@
+# Fly.io deployment. One machine only: the database is SQLite on a volume.
+app = "veil-secure-chat"
+primary_region = "sin"
+
+[build]
+
+[env]
+  PORT = "8787"
+  DB_PATH = "/data/chat.db"
+
+[mounts]
+  source = "veil_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # Idle machines stop and start again on the next request; clients reconnect
+  # automatically and undelivered envelopes stay queued in SQLite.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

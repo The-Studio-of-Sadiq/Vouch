@@ -8,8 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "android:dev": "cross-env VITE_SERVER_URL=http://10.0.2.2:8787 vite build && cross-env CAP_DEV_HTTP=1 cap sync android",
-    "android:release": "vite build && cap sync android",
-    "android:apk": "cd android && gradlew assembleDebug"
+    "android:release": "cross-env VITE_SERVER_URL=https://veil-secure-chat.fly.dev vite build && cap sync android && node scripts/gradle.mjs assembleRelease",
+    "android:apk": "node scripts/gradle.mjs assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

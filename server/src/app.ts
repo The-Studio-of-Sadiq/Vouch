@@ -158,6 +158,8 @@ export function createServer(opts: ServerOptions) {
   const route = (method: string, path: string, auth: boolean, handler: Handler) =>
     routes.push({ method, pattern: new RegExp('^' + path.replace(/:[a-z]+/gi, '([^/]+)') + '$'), auth, handler });
 
+  route('GET', '/api/health', false, () => ({ ok: true }));
+
   route('POST', '/api/register', false, ({ body }) => {
     const email = String(body?.email ?? '').trim().toLowerCase();
     const name = String(body?.name ?? '').trim();
